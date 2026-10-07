@@ -730,15 +730,14 @@ require('lazy').setup({
         -- clangd = {},
         -- gopls = {},
         -- pyright = {},
-        -- rust_analyzer = {},
+        rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
         --    https://github.com/pmizio/typescript-tools.nvim
         --
         -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
-        --
+        ts_ls = {},
 
         lua_ls = {
           -- cmd = { ... },
@@ -773,6 +772,7 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'prettier', -- Used to format web files (CSS, JS, HTML, etc.)
+        'eslint_d', -- Used to lint and fix JS/TS files
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -819,19 +819,36 @@ require('lazy').setup({
           return nil
         else
           return {
-            timeout_ms = 500,
+            timeout_ms = 2000,
             lsp_format = 'fallback',
           }
         end
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
-        css = { 'prettier' },
+        css = { 'prettier', 'oxfmt', stop_after_first = true },
+        javascript = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        javascriptreact = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        typescript = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        typescriptreact = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        rust = { 'rustfmt' },
         -- Conform can also run multiple formatters sequentially
         -- python = { "isort", "black" },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
+      },
+      formatters = {
+        prettier = {
+          condition = function(self, ctx)
+            return vim.fs.find(
+              { '.prettierrc', '.prettierrc.json', '.prettierrc.js', 'prettier.config.js', 'prettier.config.mjs' },
+              { path = ctx.filename, upward = true }
+            )[1] ~= nil
+          end,
+        },
+        oxfmt = {
+          condition = function(self, ctx)
+            return vim.fs.find({ '.oxfmtrc.json', '.oxfmtrc.jsonc', 'oxfmt.config.ts' }, { path = ctx.filename, upward = true })[1] ~= nil
+          end,
+        },
       },
     },
   },
