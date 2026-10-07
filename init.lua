@@ -188,7 +188,6 @@ vim.api.nvim_create_autocmd({ 'FocusGained', 'TermLeave', 'BufEnter', 'WinEnter'
 
 -- NOTE: My personal key bining
 vim.keymap.set('v', '<leader>l', "yoconsole.log('<Esc>pa', <Esc>pa);<Esc>", { desc = 'log selected value' })
-vim.keymap.set('n', '<leader>e', ':e.<CR>', { desc = 'Open file three' })
 
 -- Load comment toggle functionality
 dofile(vim.fn.expand '~/repo/config/comment-toggle.lua')
@@ -483,6 +482,12 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
       vim.keymap.set('n', '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
       vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
+      vim.keymap.set('v', '<leader>sg', function()
+        -- Get the visual selection
+        vim.cmd 'noau normal! "vy"'
+        local text = vim.fn.getreg 'v'
+        builtin.live_grep { default_text = text }
+      end, { desc = '[S]earch by [G]rep (selection)' })
       vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
