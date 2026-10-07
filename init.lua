@@ -739,6 +739,18 @@ require('lazy').setup({
         -- But for many setups, the LSP (`ts_ls`) will work just fine
         ts_ls = {},
 
+        -- Without this, the server scans worktrees whose tsconfig `extends` can't
+        -- resolve (no node_modules), flooding lsp.log with errors.
+        tailwindcss = {
+          settings = {
+            tailwindCSS = {
+              files = {
+                exclude = { '**/.git/**', '**/node_modules/**', '**/.hg/**', '**/.svn/**', '**/.orch/**', '**/.claude/**', '**/worktrees/**' },
+              },
+            },
+          },
+        },
+
         lua_ls = {
           -- cmd = { ... },
           -- filetypes = { ... },
@@ -1067,6 +1079,7 @@ require('lazy').setup({
   -- In normal mode type `<space>sh` then write `lazy.nvim-plugin`
   -- you can continue same window with `<space>sr` which resumes last telescope search
 }, {
+  rocks = { enabled = false },
   ui = {
     -- If you are using a Nerd Font: set icons to an empty table which will use the
     -- default lazy.nvim defined Nerd Font icons, otherwise define a unicode icons table
