@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# cmux-mk — create (or focus) a cmux workspace for a directory, non-interactively.
+# The scriptable sibling of cmux-s: no fzf picker. Shares cmux-lib.sh.
+#
+# Usage:
+#   cmux-mk <dir> [name]
+#     <dir>   absolute, cwd-relative, or $HOME-relative path
+#     [name]  workspace name (defaults to basename of <dir>)
+#
+# Prints the workspace ref on stdout (handy for scripting), e.g. `workspace:42`.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$SCRIPT_DIR/cmux-lib.sh"
+[[ -f "$LIB" ]] || LIB="$HOME/repo/config/cmux-lib.sh"
+source "$LIB"
+
+target="${1:?usage: cmux-mk <dir> [name]}"
+name="${2:-}"
+
+# Resolve <dir> to an absolute path: try as-given (absolute/cwd-relative), then $HOME-relative.
+if [[ -d "$target" ]]; then
+    path=$(cd "$target" && pwd)
+elif [[ -d "$HOME/$target" ]]; then
+    path=$(cd "$HOME/$target" && pwd)
+else
+    echo "cmux-mk: no such directory: $target" >&2
+    exit 1
+fi
+
+if [[ -n "$name" ]]; then
+    cmux_open_workspace "$path" "$name"
+else
+    cmux_open_workspace "$path"
+fi

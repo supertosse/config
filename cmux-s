@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# cmux sessionizer — fzf picker that opens directories as cmux workspaces.
+# Port of tmux-s for cmux. Shared workspace logic lives in cmux-lib.sh.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB="$SCRIPT_DIR/cmux-lib.sh"
+[[ -f "$LIB" ]] || LIB="$HOME/repo/config/cmux-lib.sh"
+source "$LIB"
+
+TS_SEARCH_PATHS=("$HOME/repo:1" "$HOME/repo/astro:2" "$HOME/repo/tripletex-frontend:2" "$HOME/repo/tripletex-frontend/scripts/migrate-repo/:2" "$HOME/repo/tripletex-mcp:2" "$HOME/repo/tripletex/app")
+TS_DIRECT_PATHS=("$HOME" "$HOME/repo")
+TS_MAX_DEPTH=2
+
+find_dirs() {
+    # existing cmux workspaces (skip unnamed)
+    cmux_workspaces | awk -F'\t' '$2 != "" { printf "[CMUX] %s\n", $2 }'
+
+    # direct paths, shown as ~ / ~/repo
+    for dir in "${TS_DIRECT_PATHS[@]}"; do
+        [[ -d "$dir" ]] && echo "$dir" | sed "s|^$HOME/||; s|^$HOME$|~|"
+    done
+
+    # depth-limited directory search; `:N` suffix overrides TS_MAX_DEPTH
+    for entry in "${TS_SEARCH_PATHS[@]}"; do
+        if [[ "$entry" =~ ^([^:]+):([0-9]+)$ ]]; then
+            path="${BASH_REMATCH[1]}"
+            depth="${BASH_REMATCH[2]}"
+        else
+            path="$entry"
+            depth=""
+        fi
+        depth="${depth:-${TS_MAX_DEPTH:-1}}"
+
+        [[ -d "$path" ]] && find "$path" -mindepth 1 -maxdepth "$depth" \( -path '*/.git' -o -path '*/node_modules' \) -prune -o -type d -print | sed "s|^$HOME/||"
+    done
+}
+
+selected=$(find_dirs | fzf)
+[[ -z "$selected" ]] && exit 0
+
+# Picked an existing workspace — switch to it and stop.
+if [[ "$selected" =~ ^\[CMUX\]\ (.+)$ ]]; then
+    ref=$(workspace_ref "${BASH_REMATCH[1]}")
+    [[ -n "$ref" ]] && cmux select-workspace --workspace "$ref"
+    exit 0
+fi
+
+# Picked a directory — resolve to path + workspace name.
+if [[ "$selected" == "~" ]]; then
+    selected_path="$HOME"
+    selected_name="home"
+else
+    selected_path="$HOME/$selected"
+    selected_name=$(basename "$selected")
+fi
+
+cmux_open_workspace "$selected_path" "$selected_name" >/dev/null
