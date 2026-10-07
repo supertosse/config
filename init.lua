@@ -100,10 +100,9 @@ vim.g.have_nerd_font = false
 
 -- Make line numbers default
 vim.o.number = true
-vim.o.relativenumber = true
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
--- vim.o.relativenumber = true
+vim.o.relativenumber = true
 
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.o.mouse = 'a'
@@ -121,6 +120,12 @@ end)
 
 -- Enable break indent
 vim.o.breakindent = true
+
+-- Indent with 4 spaces everywhere
+vim.o.expandtab = true
+vim.o.tabstop = 4
+vim.o.shiftwidth = 4
+vim.o.softtabstop = 4
 
 -- Save undo history
 vim.o.undofile = true
@@ -160,12 +165,26 @@ vim.o.inccommand = 'split'
 vim.o.cursorline = true
 
 -- Minimal number of screen lines to keep above and below the cursor.
-vim.o.scrolloff = 10
+vim.o.scrolloff = 6
 
 -- if performing an operation that would fail due to unsaved changes in the buffer (like `:q`),
 -- instead raise a dialog asking if you wish to save the current file(s)
 -- See `:help 'confirm'`
 vim.o.confirm = true
+
+-- Auto-save when switching buffers
+vim.o.autowrite = true
+
+-- Auto-reload files changed outside Neovim
+vim.o.autoread = true
+vim.api.nvim_create_autocmd({ 'FocusGained', 'TermLeave', 'BufEnter', 'WinEnter', 'CursorHold', 'CursorHoldI' }, {
+  pattern = '*',
+  callback = function()
+    if vim.fn.mode() ~= 'c' then
+      vim.cmd 'checktime'
+    end
+  end,
+})
 
 -- NOTE: My personal key bining
 vim.keymap.set('v', '<leader>l', "yoconsole.log('<Esc>pa', <Esc>pa);<Esc>", { desc = 'log selected value' })
@@ -231,6 +250,22 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   end,
 })
 
+vim.filetype.add { extension = { pea = 'pea' } }
+
+-- Runtime ftplugins set their own indent per filetype, so reassert the 4-space
+-- standard after they have run.
+vim.api.nvim_create_autocmd('FileType', {
+  desc = 'Indent every filetype with 4 spaces',
+  group = vim.api.nvim_create_augroup('indent-standard', { clear = true }),
+  pattern = '*',
+  callback = function()
+    vim.bo.expandtab = true
+    vim.bo.tabstop = 4
+    vim.bo.shiftwidth = 4
+    vim.bo.softtabstop = 4
+  end,
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -245,6 +280,10 @@ end
 ---@type vim.Option
 local rtp = vim.opt.rtp
 rtp:prepend(lazypath)
+
+-- Add config directory to runtimepath so lua modules can be found
+local config_dir = vim.fn.expand '~/repo/config/'
+rtp:prepend(config_dir)
 
 -- [[ Configure and install plugins ]]
 --
