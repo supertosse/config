@@ -100,10 +100,9 @@ vim.g.have_nerd_font = false
 
 -- Make line numbers default
 vim.o.number = true
-vim.o.relativenumber = true
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
--- vim.o.relativenumber = true
+vim.o.relativenumber = true
 
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.o.mouse = 'a'
@@ -121,6 +120,12 @@ end)
 
 -- Enable break indent
 vim.o.breakindent = true
+
+-- Indent with 4 spaces everywhere
+vim.o.expandtab = true
+vim.o.tabstop = 4
+vim.o.shiftwidth = 4
+vim.o.softtabstop = 4
 
 -- Save undo history
 vim.o.undofile = true
@@ -160,16 +165,29 @@ vim.o.inccommand = 'split'
 vim.o.cursorline = true
 
 -- Minimal number of screen lines to keep above and below the cursor.
-vim.o.scrolloff = 10
+vim.o.scrolloff = 6
 
 -- if performing an operation that would fail due to unsaved changes in the buffer (like `:q`),
 -- instead raise a dialog asking if you wish to save the current file(s)
 -- See `:help 'confirm'`
 vim.o.confirm = true
 
+-- Auto-save when switching buffers
+vim.o.autowrite = true
+
+-- Auto-reload files changed outside Neovim
+vim.o.autoread = true
+vim.api.nvim_create_autocmd({ 'FocusGained', 'TermLeave', 'BufEnter', 'WinEnter', 'CursorHold', 'CursorHoldI' }, {
+  pattern = '*',
+  callback = function()
+    if vim.fn.mode() ~= 'c' then
+      vim.cmd 'checktime'
+    end
+  end,
+})
+
 -- NOTE: My personal key bining
 vim.keymap.set('v', '<leader>l', "yoconsole.log('<Esc>pa', <Esc>pa);<Esc>", { desc = 'log selected value' })
-vim.keymap.set('n', '<leader>e', ':e.<CR>', { desc = 'Open file three' })
 
 -- Load comment toggle functionality
 dofile(vim.fn.expand '~/repo/config/comment-toggle.lua')
@@ -231,6 +249,100 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   end,
 })
 
+vim.filetype.add { extension = { pea = 'pea' } }
+
+-- Peaberry's language server is built from the project itself, so it is registered
+-- with the native API rather than through mason/lspconfig's registry.
+local peaberry_lsp = vim.fn.expand '~/repo/peaberry/peaberry/target/debug/peaberry-lsp'
+
+vim.lsp.config('peaberry', {
+  cmd = { peaberry_lsp },
+  filetypes = { 'pea' },
+  root_markers = { 'Cargo.toml', '.git' },
+})
+
+-- Guarded so opening a .pea file does not error when the binary is not built.
+if vim.fn.executable(peaberry_lsp) == 1 then
+  vim.lsp.enable 'peaberry'
+end
+
+-- cargo prints a long report; the first `error` line is the useful part.
+local function first_error(output)
+  for _, line in ipairs(vim.split(vim.trim(output or ''), '\n')) do
+    if line:match '^error' then
+      return line
+    end
+  end
+  return 'build failed'
+end
+
+-- Compile a .pea file when it is saved. The compiler writes its output beside
+-- the source, so saving sample/if/index.pea refreshes that folder only.
+local peaberry_cc = vim.fn.expand '~/repo/peaberry/peaberry/target/debug/peaberry'
+
+vim.api.nvim_create_autocmd('BufWritePost', {
+  desc = 'Compile the saved peaberry file',
+  group = vim.api.nvim_create_augroup('peaberry-compile', { clear = true }),
+  pattern = '*.pea',
+  callback = function(event)
+    if vim.fn.executable(peaberry_cc) ~= 1 then
+      return
+    end
+    local source = vim.api.nvim_buf_get_name(event.buf)
+    vim.system({ peaberry_cc, source }, { text = true }, function(result)
+      if result.code == 0 then
+        return
+      end
+      -- the compiler dumps the AST to stderr, so report only the final line
+      local lines = vim.split(vim.trim(result.stderr or ''), '\n')
+      vim.schedule(function()
+        vim.notify(lines[#lines], vim.log.levels.ERROR, { title = 'peaberry' })
+      end)
+    end)
+  end,
+})
+
+-- Saving one of peaberry's own Rust files rebuilds both binaries and restarts
+-- the language server, which would otherwise keep running the previous build.
+local peaberry_root = vim.fn.expand '~/repo/peaberry/peaberry'
+
+vim.api.nvim_create_autocmd('BufWritePost', {
+  desc = 'Rebuild peaberry and restart its language server',
+  group = vim.api.nvim_create_augroup('peaberry-rebuild', { clear = true }),
+  pattern = '*.rs',
+  callback = function(event)
+    if not vim.startswith(vim.api.nvim_buf_get_name(event.buf), peaberry_root) then
+      return
+    end
+    vim.notify('building', vim.log.levels.INFO, { title = 'peaberry' })
+    vim.system({ 'cargo', 'build' }, { cwd = peaberry_root, text = true }, function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          vim.notify(first_error(result.stderr), vim.log.levels.ERROR, { title = 'peaberry' })
+          return
+        end
+        vim.lsp.enable('peaberry', false)
+        vim.lsp.enable 'peaberry'
+        vim.notify('rebuilt, language server restarted', vim.log.levels.INFO, { title = 'peaberry' })
+      end)
+    end)
+  end,
+})
+
+-- Runtime ftplugins set their own indent per filetype, so reassert the 4-space
+-- standard after they have run.
+vim.api.nvim_create_autocmd('FileType', {
+  desc = 'Indent every filetype with 4 spaces',
+  group = vim.api.nvim_create_augroup('indent-standard', { clear = true }),
+  pattern = '*',
+  callback = function()
+    vim.bo.expandtab = true
+    vim.bo.tabstop = 4
+    vim.bo.shiftwidth = 4
+    vim.bo.softtabstop = 4
+  end,
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -245,6 +357,10 @@ end
 ---@type vim.Option
 local rtp = vim.opt.rtp
 rtp:prepend(lazypath)
+
+-- Add config directory to runtimepath so lua modules can be found
+local config_dir = vim.fn.expand '~/repo/config/'
+rtp:prepend(config_dir)
 
 -- [[ Configure and install plugins ]]
 --
@@ -444,6 +560,12 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
       vim.keymap.set('n', '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
       vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
+      vim.keymap.set('v', '<leader>sg', function()
+        -- Get the visual selection
+        vim.cmd 'noau normal! "vy"'
+        local text = vim.fn.getreg 'v'
+        builtin.live_grep { default_text = text }
+      end, { desc = '[S]earch by [G]rep (selection)' })
       vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
@@ -498,8 +620,10 @@ require('lazy').setup({
       'mason-org/mason-lspconfig.nvim',
       'WhoIsSethDaniel/mason-tool-installer.nvim',
 
-      -- Useful status updates for LSP.
-      { 'j-hui/fidget.nvim', opts = {} },
+      -- Useful status updates for LSP. Taking over `vim.notify` keeps messages
+      -- out of the one-line command area, which otherwise forces a hit-enter
+      -- prompt whenever a notification lands on top of another message.
+      { 'j-hui/fidget.nvim', opts = { notification = { override_vim_notify = true } } },
 
       -- Allows extra capabilities provided by blink.cmp
       'saghen/blink.cmp',
@@ -686,15 +810,34 @@ require('lazy').setup({
         -- clangd = {},
         -- gopls = {},
         -- pyright = {},
-        -- rust_analyzer = {},
+        rust_analyzer = {
+          settings = {
+            ['rust-analyzer'] = {
+              -- Lint with clippy rather than plain `cargo check`, so its
+              -- warnings arrive as diagnostics and `gra` can apply the fix.
+              check = { command = 'clippy' },
+            },
+          },
+        },
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
         --    https://github.com/pmizio/typescript-tools.nvim
         --
         -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
-        --
+        ts_ls = {},
+
+        -- Without this, the server scans worktrees whose tsconfig `extends` can't
+        -- resolve (no node_modules), flooding lsp.log with errors.
+        tailwindcss = {
+          settings = {
+            tailwindCSS = {
+              files = {
+                exclude = { '**/.git/**', '**/node_modules/**', '**/.hg/**', '**/.svn/**', '**/.orch/**', '**/.claude/**', '**/worktrees/**' },
+              },
+            },
+          },
+        },
 
         lua_ls = {
           -- cmd = { ... },
@@ -729,22 +872,24 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'prettier', -- Used to format web files (CSS, JS, HTML, etc.)
+        'eslint_d', -- Used to lint and fix JS/TS files
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
+      -- mason-lspconfig v2 dropped `handlers`, so per-server settings go through
+      -- `vim.lsp.config` instead. The '*' entry is merged into every server.
+      vim.lsp.config('*', { capabilities = capabilities })
+      for server_name, server in pairs(servers) do
+        vim.lsp.config(server_name, server)
+      end
+
+      -- v2 enables every installed server itself (automatic_enable defaults to true),
+      -- picking up the configuration registered above.
       require('mason-lspconfig').setup {
-        ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
-        automatic_installation = false,
-        handlers = {
-          function(server_name)
-            local server = servers[server_name] or {}
-            -- This handles overriding only values explicitly passed
-            -- by the server configuration above. Useful when disabling
-            -- certain features of an LSP (for example, turning off formatting for ts_ls)
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
-          end,
-        },
+        ensure_installed = {}, -- Kickstart populates installs via mason-tool-installer
+        -- stylua is installed for conform, but nvim-lspconfig ships an `lsp/stylua.lua`
+        -- and mason-lspconfig lists it as a Lua server, so it would be started as one.
+        automatic_enable = { exclude = { 'stylua' } },
       }
     end,
   },
@@ -774,19 +919,36 @@ require('lazy').setup({
           return nil
         else
           return {
-            timeout_ms = 500,
+            timeout_ms = 2000,
             lsp_format = 'fallback',
           }
         end
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
-        css = { 'prettier' },
+        css = { 'prettier', 'oxfmt', stop_after_first = true },
+        javascript = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        javascriptreact = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        typescript = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        typescriptreact = { 'prettier', 'oxfmt', 'eslint_d', stop_after_first = true },
+        rust = { 'rustfmt' },
         -- Conform can also run multiple formatters sequentially
         -- python = { "isort", "black" },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
+      },
+      formatters = {
+        prettier = {
+          condition = function(self, ctx)
+            return vim.fs.find(
+              { '.prettierrc', '.prettierrc.json', '.prettierrc.js', 'prettier.config.js', 'prettier.config.mjs' },
+              { path = ctx.filename, upward = true }
+            )[1] ~= nil
+          end,
+        },
+        oxfmt = {
+          condition = function(self, ctx)
+            return vim.fs.find({ '.oxfmtrc.json', '.oxfmtrc.jsonc', 'oxfmt.config.ts' }, { path = ctx.filename, upward = true })[1] ~= nil
+          end,
+        },
       },
     },
   },
@@ -991,8 +1153,8 @@ require('lazy').setup({
   -- require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
-  -- require 'kickstart.plugins.neo-tree',
-  -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
+  require 'kickstart.plugins.neo-tree',
+  require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
@@ -1005,6 +1167,7 @@ require('lazy').setup({
   -- In normal mode type `<space>sh` then write `lazy.nvim-plugin`
   -- you can continue same window with `<space>sr` which resumes last telescope search
 }, {
+  rocks = { enabled = false },
   ui = {
     -- If you are using a Nerd Font: set icons to an empty table which will use the
     -- default lazy.nvim defined Nerd Font icons, otherwise define a unicode icons table
