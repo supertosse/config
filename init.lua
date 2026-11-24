@@ -251,6 +251,84 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 
 vim.filetype.add { extension = { pea = 'pea' } }
 
+-- Peaberry's language server is built from the project itself, so it is registered
+-- with the native API rather than through mason/lspconfig's registry.
+local peaberry_lsp = vim.fn.expand '~/repo/peaberry/peaberry/target/debug/peaberry-lsp'
+
+vim.lsp.config('peaberry', {
+  cmd = { peaberry_lsp },
+  filetypes = { 'pea' },
+  root_markers = { 'Cargo.toml', '.git' },
+})
+
+-- Guarded so opening a .pea file does not error when the binary is not built.
+if vim.fn.executable(peaberry_lsp) == 1 then
+  vim.lsp.enable 'peaberry'
+end
+
+-- cargo prints a long report; the first `error` line is the useful part.
+local function first_error(output)
+  for _, line in ipairs(vim.split(vim.trim(output or ''), '\n')) do
+    if line:match '^error' then
+      return line
+    end
+  end
+  return 'build failed'
+end
+
+-- Compile a .pea file when it is saved. The compiler writes its output beside
+-- the source, so saving sample/if/index.pea refreshes that folder only.
+local peaberry_cc = vim.fn.expand '~/repo/peaberry/peaberry/target/debug/peaberry'
+
+vim.api.nvim_create_autocmd('BufWritePost', {
+  desc = 'Compile the saved peaberry file',
+  group = vim.api.nvim_create_augroup('peaberry-compile', { clear = true }),
+  pattern = '*.pea',
+  callback = function(event)
+    if vim.fn.executable(peaberry_cc) ~= 1 then
+      return
+    end
+    local source = vim.api.nvim_buf_get_name(event.buf)
+    vim.system({ peaberry_cc, source }, { text = true }, function(result)
+      if result.code == 0 then
+        return
+      end
+      -- the compiler dumps the AST to stderr, so report only the final line
+      local lines = vim.split(vim.trim(result.stderr or ''), '\n')
+      vim.schedule(function()
+        vim.notify(lines[#lines], vim.log.levels.ERROR, { title = 'peaberry' })
+      end)
+    end)
+  end,
+})
+
+-- Saving one of peaberry's own Rust files rebuilds both binaries and restarts
+-- the language server, which would otherwise keep running the previous build.
+local peaberry_root = vim.fn.expand '~/repo/peaberry/peaberry'
+
+vim.api.nvim_create_autocmd('BufWritePost', {
+  desc = 'Rebuild peaberry and restart its language server',
+  group = vim.api.nvim_create_augroup('peaberry-rebuild', { clear = true }),
+  pattern = '*.rs',
+  callback = function(event)
+    if not vim.startswith(vim.api.nvim_buf_get_name(event.buf), peaberry_root) then
+      return
+    end
+    vim.notify('building', vim.log.levels.INFO, { title = 'peaberry' })
+    vim.system({ 'cargo', 'build' }, { cwd = peaberry_root, text = true }, function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          vim.notify(first_error(result.stderr), vim.log.levels.ERROR, { title = 'peaberry' })
+          return
+        end
+        vim.lsp.enable('peaberry', false)
+        vim.lsp.enable 'peaberry'
+        vim.notify('rebuilt, language server restarted', vim.log.levels.INFO, { title = 'peaberry' })
+      end)
+    end)
+  end,
+})
+
 -- Runtime ftplugins set their own indent per filetype, so reassert the 4-space
 -- standard after they have run.
 vim.api.nvim_create_autocmd('FileType', {
@@ -542,8 +620,10 @@ require('lazy').setup({
       'mason-org/mason-lspconfig.nvim',
       'WhoIsSethDaniel/mason-tool-installer.nvim',
 
-      -- Useful status updates for LSP.
-      { 'j-hui/fidget.nvim', opts = {} },
+      -- Useful status updates for LSP. Taking over `vim.notify` keeps messages
+      -- out of the one-line command area, which otherwise forces a hit-enter
+      -- prompt whenever a notification lands on top of another message.
+      { 'j-hui/fidget.nvim', opts = { notification = { override_vim_notify = true } } },
 
       -- Allows extra capabilities provided by blink.cmp
       'saghen/blink.cmp',
@@ -730,7 +810,15 @@ require('lazy').setup({
         -- clangd = {},
         -- gopls = {},
         -- pyright = {},
-        rust_analyzer = {},
+        rust_analyzer = {
+          settings = {
+            ['rust-analyzer'] = {
+              -- Lint with clippy rather than plain `cargo check`, so its
+              -- warnings arrive as diagnostics and `gra` can apply the fix.
+              check = { command = 'clippy' },
+            },
+          },
+        },
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
