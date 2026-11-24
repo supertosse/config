@@ -3,6 +3,9 @@
 # Shared helpers for the cmux sessionizer scripts (cmux-s, cmux-mk).
 # Source this file; do not execute it directly.
 
+# Silence the "'<cmd>' is now an alias for ..." deprecation notices on stderr.
+export CMUX_QUIET=1
+
 # `cmux list-workspaces` prints one line per workspace:
 #   [* ]workspace:<n>  <title>[  [selected]]
 # Emit "<ref>\t<title>" pairs.
@@ -38,18 +41,21 @@ cmux_open_workspace() {
     local existing_ref
     existing_ref=$(workspace_ref "$name")
     if [[ -n "$existing_ref" ]]; then
-        cmux select-workspace --workspace "$existing_ref"
+        cmux select-workspace --workspace "$existing_ref" >/dev/null
         echo "$existing_ref"
         return 0
     fi
 
-    # Otherwise spin up a new workspace. The first tab auto-runs `nvim`.
-    cmux new-workspace --name "$name" --cwd "$path" --command "nvim" >/dev/null
+    # Not workspace_ref: a just-created workspace isn't listed yet, and an empty ref targets the caller's workspace.
     local new_ref
-    new_ref=$(workspace_ref "$name")
+    new_ref=$(cmux new-workspace --name "$name" --cwd "$path" --command "nvim" | awk '$1 == "OK" { print $2 }')
+    if [[ -z "$new_ref" ]]; then
+        echo "cmux_open_workspace: failed to create workspace '$name'" >&2
+        return 1
+    fi
 
     # The initial tab (running nvim) is the currently focused one.
-    cmux rename-tab --workspace "$new_ref" "Code"
+    cmux rename-tab --workspace "$new_ref" "Code" >/dev/null
 
     # Extra terminal tabs to create after Code, in the intended left-to-right order.
     local tabs=("Server" "Claude" "Whatever")
@@ -62,10 +68,10 @@ cmux_open_workspace() {
     for (( index=${#tabs[@]}-1; index>=0; index-- )); do
         surface_ref=$(cmux new-surface --workspace "$new_ref" | awk '{ print $2 }')
         if [[ -n "$surface_ref" ]]; then
-            cmux rename-tab --workspace "$new_ref" --tab "$surface_ref" "${tabs[$index]}"
+            cmux rename-tab --workspace "$new_ref" --tab "$surface_ref" "${tabs[$index]}" >/dev/null
         fi
     done
 
-    cmux select-workspace --workspace "$new_ref"
+    cmux select-workspace --workspace "$new_ref" >/dev/null
     echo "$new_ref"
 }

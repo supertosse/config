@@ -42,7 +42,7 @@ selected=$(find_dirs | fzf)
 # Picked an existing workspace — switch to it and stop.
 if [[ "$selected" =~ ^\[CMUX\]\ (.+)$ ]]; then
     ref=$(workspace_ref "${BASH_REMATCH[1]}")
-    [[ -n "$ref" ]] && cmux select-workspace --workspace "$ref"
+    [[ -n "$ref" ]] && cmux select-workspace --workspace "$ref" >/dev/null
     exit 0
 fi
 
